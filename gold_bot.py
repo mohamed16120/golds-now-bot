@@ -15,30 +15,37 @@ TEXT_DARK = (16, 32, 27)
 TEXT_LIGHT = (255, 255, 255)
 TEXT_GOLD = (242, 206, 115)
 
+
 def reshape_ar(text: str) -> str:
+    has_arabic = any("\u0600" <= ch <= "\u06FF" for ch in text)
+    if not has_arabic:
+        return text
     try:
         import arabic_reshaper
         from bidi.algorithm import get_display
-        return get_display(arabic_reshaper.reshape(text))
-    except Exception:
+        reshaped = arabic_reshaper.reshape(text)
+        return get_display(reshaped)
+    except Exception as e:
+        print(f"Arabic shaping fallback warning: {e}")
         return text
 
+
 def load_font(size: int, bold: bool = False):
-    candidates = []
-    if bold:
-        candidates = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf",
-        ]
-    else:
-        candidates = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
-        ]
+    candidates = [
+        "font.ttf",
+        "Cairo-Bold.ttf",
+        "NotoSansArabic-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        if bold
+        else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
     for path in candidates:
         if os.path.exists(path):
             return ImageFont.truetype(path, size)
     return ImageFont.load_default()
+
 
 def get_prices():
     gold_res = requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()
@@ -49,6 +56,7 @@ def get_prices():
 
     return xau_usd, usd_egp
 
+
 def draw_centered_text(draw, box, text, font, fill):
     x1, y1, x2, y2 = box
     bbox = draw.textbbox((0, 0), text, font=font)
@@ -57,6 +65,7 @@ def draw_centered_text(draw, box, text, font, fill):
     tx = x1 + (x2 - x1 - w) / 2 - bbox[0]
     ty = y1 + (y2 - y1 - h) / 2 - bbox[1]
     draw.text((tx, ty), text, font=font, fill=fill)
+
 
 def generate_card(xau_usd: float, usd_egp: float, output_path: str = "gold_card.png"):
     W, H = 900, 1600
@@ -169,6 +178,7 @@ def generate_card(xau_usd: float, usd_egp: float, output_path: str = "gold_card.
     img.save(output_path)
     return output_path
 
+
 def send_photo_to_channel(image_path: str, xau_usd: float, usd_egp: float):
     cairo_tz = timezone(timedelta(hours=2))
     now = datetime.now(cairo_tz).strftime("%I:%M %p - %Y/%m/%d")
@@ -183,6 +193,7 @@ def send_photo_to_channel(image_path: str, xau_usd: float, usd_egp: float):
             timeout=20,
         )
     print(res.text)
+
 
 if __name__ == "__main__":
     xau, egp = get_prices()
