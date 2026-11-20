@@ -1,5 +1,4 @@
 import os
-import re
 import requests
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
@@ -17,51 +16,23 @@ TEXT_LIGHT = (255, 255, 255)
 TEXT_GOLD = (242, 206, 115)
 
 
-def _fallback_rtl(text: str) -> str:
-    """عكس ترتيب الأجزاء العربية فقط مع إبقاء الأرقام والرموز كما هي"""
-    tokens = re.split(r'(\s+|[0-9]+(?:\.[0-9]+)?|[@A-Za-z0-9_./:-]+)', text)
-    ar_tokens = []
-    out = []
-    for tok in tokens:
-        if not tok:
-            continue
-        if any("\u0600" <= ch <= "\u06FF" for ch in tok):
-            ar_tokens.append(tok[::-1])
-        else:
-            if ar_tokens:
-                out.extend(reversed(ar_tokens))
-                ar_tokens = []
-            out.append(tok)
-    if ar_tokens:
-        out.extend(reversed(ar_tokens))
-    return "".join(out)
-
-
 def reshape_ar(text: str) -> str:
-    """تشكيل وعكس النصوص العربية لتظهر متصلة ومن اليمين لليسار"""
-    if not any("\u0600" <= ch <= "\u06FF" for ch in text):
-        return text
-    try:
-        import arabic_reshaper
-        from bidi.algorithm import get_display
-        reshaped = arabic_reshaper.reshape(text)
-        return get_display(reshaped)
-    except Exception as e:
-        print(f"Using fallback RTL due to: {e}")
-        lines = text.split("\n")
-        return "\n".join(_fallback_rtl(line) for line in lines)
+    """
+    Pillow الحديث (اللي فيه raqm + HarfBuzz) بيعمل تشكيل واتجاه العربي لوحده.
+    لو عملنا reshape + bidi هيحصل قلب مزدوج والنص يظهر مقلوب.
+    عشان كده بنرجع النص زي ما هو.
+    """
+    return text
 
 
 def load_font(size: int, bold: bool = False):
     candidates = [
-        "font.ttf",
+        "font.ttf",  # الخط الموجود في الريبو
         "Cairo-Bold.ttf",
         "NotoSansArabic-Bold.ttf",
         "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        if bold
-        else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ]
     for path in candidates:
         if os.path.exists(path):
@@ -129,42 +100,54 @@ def generate_card(xau_usd: float, usd_egp: float, output_path: str = "gold_card.
     f_gap_val = load_font(32, bold=True)
     f_footer = load_font(26, bold=True)
 
+    # الشريط العلوي
     draw.rounded_rectangle([25, 22, 875, 76], radius=22, fill=EMERALD_DARK)
     draw.text((48, 34), "GOLD SNOW LIVE", font=f_badge, fill=TEXT_GOLD)
     draw_centered_text(draw, [280, 28, 620, 70], reshape_ar("مؤشر الذهب اللحظي"), f_badge, TEXT_LIGHT)
     draw.text((695, 34), time_str, font=f_badge, fill=TEXT_LIGHT)
 
+    # البطاقات العلوية الثلاثة
     top_y1, top_y2 = 94, 214
+
+    # دولار البنك
     draw.rounded_rectangle([25, top_y1, 275, top_y2], radius=22, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=2)
     draw_centered_text(draw, [25, top_y1 + 8, 275, top_y1 + 56], reshape_ar("دولار البنك"), f_top_title, TEXT_GOLD)
     draw_centered_text(draw, [25, top_y1 + 60, 275, top_y2 - 8], reshape_ar(f"{usd_egp:.2f} ج.م"), f_top_val, TEXT_LIGHT)
 
+    # الأونصة العالمية
     draw.rounded_rectangle([295, top_y1, 605, top_y2], radius=22, fill=CARD_LIGHT, outline=EMERALD_DARK, width=3)
     draw_centered_text(draw, [295, top_y1 + 8, 605, top_y1 + 56], reshape_ar("الأونصة العالمية"), f_top_title, EMERALD_DARK)
     draw_centered_text(draw, [295, top_y1 + 60, 605, top_y2 - 8], reshape_ar(f"{round(xau_usd)} دولار"), f_top_val, TEXT_DARK)
 
+    # دولار الصاغة
     draw.rounded_rectangle([625, top_y1, 875, top_y2], radius=22, fill=EMERALD_ACCENT, outline=GOLD_ACCENT, width=2)
     draw_centered_text(draw, [625, top_y1 + 8, 875, top_y1 + 56], reshape_ar("دولار الصاغة"), f_top_title, TEXT_GOLD)
     draw_centered_text(draw, [625, top_y1 + 60, 875, top_y2 - 8], reshape_ar(f"{sagha_dollar:.2f} ج.م"), f_top_val, TEXT_LIGHT)
 
+    # كارت عيار 21 الكبير
     draw.rounded_rectangle([25, 236, 875, 685], radius=30, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=4)
     draw.rounded_rectangle([250, 252, 650, 312], radius=20, fill=EMERALD_DARK)
     draw_centered_text(draw, [250, 256, 650, 308], reshape_ar("عيار 21 اليوم في مصر"), f_sec_title, TEXT_GOLD)
 
     draw_centered_text(draw, [50, 320, 850, 545], f"{round(gram_21_buy)}", f_big_21, EMERALD_DARK)
 
+    # أزرار شراء / بيع
     draw.rounded_rectangle([55, 562, 435, 658], radius=22, fill=EMERALD_DARK)
     draw_centered_text(draw, [55, 568, 435, 652], reshape_ar(f"شراء: {round(gram_21_buy)} ج"), f_sub_box, TEXT_GOLD)
 
     draw.rounded_rectangle([465, 562, 845, 658], radius=22, fill=BG_COLOR, outline=EMERALD_DARK, width=3)
     draw_centered_text(draw, [465, 568, 845, 652], reshape_ar(f"بيع: {round(gram_21_sell)} ج"), f_sub_box, TEXT_DARK)
 
+    # عناوين الجدول
     draw_centered_text(draw, [50, 712, 250, 780], reshape_ar("بيع"), f_tbl_hdr, TEXT_DARK)
     draw_centered_text(draw, [325, 712, 555, 780], reshape_ar("شراء"), f_tbl_hdr, TEXT_DARK)
+
+    # كارت الفجوة السعرية
     draw.rounded_rectangle([605, 704, 875, 792], radius=26, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=3)
     draw.text((628, 730), f"{gap}", font=f_gap_val, fill=EMERALD_DARK)
     draw_centered_text(draw, [665, 710, 868, 786], reshape_ar("الفجوة\nالسعرية"), f_gap_lbl, TEXT_DARK)
 
+    # صفوف الجدول
     rows = [
         ("عيار 24", round(gram_24_buy), round(gram_24_sell)),
         ("عيار 18", round(gram_18_buy), round(gram_18_sell)),
@@ -189,12 +172,14 @@ def generate_card(xau_usd: float, usd_egp: float, output_path: str = "gold_card.
         draw_centered_text(draw, [315, y1 + 10, 565, y2 - 10], f"{buy_val}", f_row_num, TEXT_GOLD)
         draw_centered_text(draw, [585, y1 + 10, 860, y2 - 10], reshape_ar(label), f_row_label, TEXT_LIGHT)
 
+    # الشريط السفلي (سعر عيار 21 العادل)
     bot_y1, bot_y2 = 1405, 1505
     draw.rounded_rectangle([25, bot_y1, 875, bot_y2], radius=26, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=3)
     draw.rounded_rectangle([38, bot_y1 + 10, 425, bot_y2 - 10], radius=20, fill=CARD_LIGHT)
     draw_centered_text(draw, [38, bot_y1 + 14, 425, bot_y2 - 14], reshape_ar(f"{fair_21} جنيه"), f_tbl_hdr, EMERALD_DARK)
     draw_centered_text(draw, [445, bot_y1 + 14, 860, bot_y2 - 14], reshape_ar("سعر عيار 21 العادل"), f_tbl_hdr, TEXT_GOLD)
 
+    # الفوتر
     draw_centered_text(draw, [50, 1518, 850, 1578], reshape_ar("@Goldsnowchennel • تحديث تلقائي كل 30 دقيقة"), f_footer, TEXT_DARK)
 
     img.save(output_path)
