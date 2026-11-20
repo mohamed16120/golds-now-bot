@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
@@ -16,9 +17,29 @@ TEXT_LIGHT = (255, 255, 255)
 TEXT_GOLD = (242, 206, 115)
 
 
+def _fallback_rtl(text: str) -> str:
+    """عكس ترتيب الأجزاء العربية فقط مع إبقاء الأرقام والرموز كما هي"""
+    tokens = re.split(r'(\s+|[0-9]+(?:\.[0-9]+)?|[@A-Za-z0-9_./:-]+)', text)
+    ar_tokens = []
+    out = []
+    for tok in tokens:
+        if not tok:
+            continue
+        if any("\u0600" <= ch <= "\u06FF" for ch in tok):
+            ar_tokens.append(tok[::-1])
+        else:
+            if ar_tokens:
+                out.extend(reversed(ar_tokens))
+                ar_tokens = []
+            out.append(tok)
+    if ar_tokens:
+        out.extend(reversed(ar_tokens))
+    return "".join(out)
+
+
 def reshape_ar(text: str) -> str:
-    has_arabic = any("\u0600" <= ch <= "\u06FF" for ch in text)
-    if not has_arabic:
+    """تشكيل وعكس النصوص العربية لتظهر متصلة ومن اليمين لليسار"""
+    if not any("\u0600" <= ch <= "\u06FF" for ch in text):
         return text
     try:
         import arabic_reshaper
@@ -26,8 +47,9 @@ def reshape_ar(text: str) -> str:
         reshaped = arabic_reshaper.reshape(text)
         return get_display(reshaped)
     except Exception as e:
-        print(f"Arabic shaping fallback warning: {e}")
-        return text
+        print(f"Using fallback RTL due to: {e}")
+        lines = text.split("\n")
+        return "\n".join(_fallback_rtl(line) for line in lines)
 
 
 def load_font(size: int, bold: bool = False):
