@@ -2,6 +2,7 @@ import os
 import re
 import json
 import requests
+from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
 
@@ -69,10 +70,49 @@ def get_global_market():
     }
 
 
+def scrape_isagha_21():
+    """محاولة أولى مجانية: جلب سعر عيار 21 مباشرة من آي صاغة"""
+    urls = ["https://market.isagha.com/prices", "https://isagha.com/"]
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "ar-EG,ar;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+
+    for url in urls:
+        try:
+            res = requests.get(url, headers=headers, timeout=12)
+            if res.status_code != 200:
+                print(f"[iSagha Scrape] HTTP {res.status_code} on {url}")
+                continue
+
+            soup = BeautifulSoup(res.text, "html.parser")
+            text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
+
+            m = re.search(
+                r"عيار\s*21.*?(\d{4,5}(?:\.\d{1,2})?)\s*(?:ج\.م|جنيه)?\s*بيع.*?(\d{4,5}(?:\.\d{1,2})?)\s*(?:ج\.م|جنيه)?\s*شراء",
+                text,
+            )
+            if m:
+                sell_val = float(m.group(1))
+                buy_val = float(m.group(2))
+                if 2500 <= sell_val <= 30000:
+                    print(f"[iSagha Scrape OK] Sell={round(sell_val)}, Buy={round(buy_val)}")
+                    return round(sell_val), round(buy_val)
+
+        except Exception as e:
+            print(f"[iSagha Scrape Error] {url}: {repr(e)}")
+
+    raise ValueError("Direct scrape failed for iSagha 21K")
+
+
 def get_isagha_21_via_gemini(fallback_sell: int, fallback_buy: int):
-    """جيميناي يبحث حصرياً داخل موقع آي صاغة (isagha) عن سعر عيار 21 الآن"""
+    """محاولة احتياطية: جيميناي يبحث حصرياً في isagha.com عن سعر عيار 21"""
     if not GEMINI_API_KEY:
-        print("[Gemini Warning] GEMINI_API_KEY is empty in environment.")
+        print("[Gemini Warning] GEMINI_API_KEY is empty.")
         return fallback_sell, fallback_buy
 
     try:
@@ -118,12 +158,16 @@ def get_isagha_21_via_gemini(fallback_sell: int, fallback_buy: int):
 
 def build_market_data():
     glob = get_global_market()
-    sagha_21_sell, sagha_21_buy = get_isagha_21_via_gemini(
-        fallback_sell=glob["g21_sell"],
-        fallback_buy=glob["g21_buy"],
-    )
 
-    # الفجوة السعرية = سعر عيار 21 في آي صاغة - سعر عيار 21 من الشاشة العالمية
+    try:
+        sagha_21_sell, sagha_21_buy = scrape_isagha_21()
+    except Exception as e_scrape:
+        print(f"[Fallback to Gemini] {repr(e_scrape)}")
+        sagha_21_sell, sagha_21_buy = get_isagha_21_via_gemini(
+            fallback_sell=glob["g21_sell"],
+            fallback_buy=glob["g21_buy"],
+        )
+
     gap_egp = sagha_21_sell - glob["g21_sell"]
 
     return {
@@ -172,13 +216,11 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
     f_gap_val = load_font(30, bold=True)
     f_footer = load_font(26, bold=True)
 
-    # الشريط العلوي
     draw.rounded_rectangle([25, 22, 875, 76], radius=22, fill=EMERALD_DARK)
     draw.text((48, 34), "GOLD SNOW LIVE", font=f_badge, fill=TEXT_GOLD)
     draw_centered_text(draw, [280, 28, 620, 70], reshape_ar("مؤشر الذهب اللحظي"), f_badge, TEXT_LIGHT)
     draw.text((695, 34), time_str, font=f_badge, fill=TEXT_LIGHT)
 
-    # البطاقات العلوية (دولار البنك + الأونصة العالمية فقط)
     top_y1, top_y2 = 94, 214
 
     draw.rounded_rectangle([25, top_y1, 435, top_y2], radius=22, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=2)
@@ -189,7 +231,6 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
     draw_centered_text(draw, [465, top_y1 + 8, 875, top_y1 + 56], reshape_ar("الأونصة العالمية"), f_top_title, EMERALD_DARK)
     draw_centered_text(draw, [465, top_y1 + 60, 875, top_y2 - 8], reshape_ar(f"{round(data['xau_usd'])} دولار"), f_top_val, TEXT_DARK)
 
-    # كارت عيار 21 اليوم في مصر (من آي صاغة عبر جيميناي)
     draw.rounded_rectangle([25, 236, 875, 685], radius=30, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=4)
     draw.rounded_rectangle([250, 252, 650, 312], radius=20, fill=EMERALD_DARK)
     draw_centered_text(draw, [250, 256, 650, 308], reshape_ar("عيار 21 اليوم في مصر"), f_sec_title, TEXT_GOLD)
@@ -202,18 +243,15 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
     draw.rounded_rectangle([465, 562, 845, 658], radius=22, fill=BG_COLOR, outline=EMERALD_DARK, width=3)
     draw_centered_text(draw, [465, 568, 845, 652], reshape_ar(f"شراء: {data['sagha_21_buy']} ج"), f_sub_box, TEXT_DARK)
 
-    # عناوين الجدول
     draw_centered_text(draw, [50, 712, 250, 780], reshape_ar("شراء"), f_tbl_hdr, TEXT_DARK)
     draw_centered_text(draw, [325, 712, 555, 780], reshape_ar("بيع"), f_tbl_hdr, TEXT_DARK)
 
-    # كارت الفجوة السعرية (آي صاغة - الشاشة العالمية)
     gap_val = data["gap_egp"]
     gap_str = f"{gap_val:+d} ج" if gap_val != 0 else "0 ج"
     draw.rounded_rectangle([590, 704, 875, 792], radius=26, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=3)
     draw_centered_text(draw, [598, 710, 725, 786], reshape_ar(gap_str), f_gap_val, EMERALD_DARK)
     draw_centered_text(draw, [725, 710, 868, 786], reshape_ar("الفجوة\nالسعرية"), f_gap_lbl, TEXT_DARK)
 
-    # باقي الأعيرة كلها من الشاشة العالمية
     rows = [
         ("عيار 24", data["g24_sell"], data["g24_buy"]),
         ("عيار 18", data["g18_sell"], data["g18_buy"]),
@@ -238,15 +276,13 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
         draw_centered_text(draw, [315, y1 + 10, 565, y2 - 10], f"{sell_val}", f_row_num, TEXT_GOLD)
         draw_centered_text(draw, [585, y1 + 10, 860, y2 - 10], reshape_ar(label), f_row_label, TEXT_LIGHT)
 
-    # الشريط السفلي (سعر عيار 21 من الشاشة العالمية)
     bot_y1, bot_y2 = 1405, 1505
     draw.rounded_rectangle([25, bot_y1, 875, bot_y2], radius=26, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=3)
     draw.rounded_rectangle([38, bot_y1 + 10, 425, bot_y2 - 10], radius=20, fill=CARD_LIGHT)
     draw_centered_text(draw, [38, bot_y1 + 14, 425, bot_y2 - 14], reshape_ar(f"{data['global_21_sell']} جنيه"), f_tbl_hdr, EMERALD_DARK)
     draw_centered_text(draw, [445, bot_y1 + 14, 860, bot_y2 - 14], reshape_ar("سعر عيار 21 عالمياً"), f_tbl_hdr, TEXT_GOLD)
 
-    # الفوتر
-    draw_centered_text(draw, [50, 1518, 850, 1578], reshape_ar("@Goldsnowchennel • تحديث تلقائي كل 30 دقيقة"), f_footer, TEXT_DARK)
+    draw_centered_text(draw, [50, 1518, 850, 1578], reshape_ar("@Goldsnowchennel • تحديث تلقائي كل ساعة"), f_footer, TEXT_DARK)
 
     img.save(output_path)
     return output_path
@@ -283,6 +319,7 @@ import os
 import re
 import json
 import requests
+from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from PIL import Image, ImageDraw, ImageFont
 
@@ -350,10 +387,49 @@ def get_global_market():
     }
 
 
+def scrape_isagha_21():
+    """محاولة أولى مجانية: جلب سعر عيار 21 مباشرة من آي صاغة"""
+    urls = ["https://market.isagha.com/prices", "https://isagha.com/"]
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "ar-EG,ar;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+
+    for url in urls:
+        try:
+            res = requests.get(url, headers=headers, timeout=12)
+            if res.status_code != 200:
+                print(f"[iSagha Scrape] HTTP {res.status_code} on {url}")
+                continue
+
+            soup = BeautifulSoup(res.text, "html.parser")
+            text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
+
+            m = re.search(
+                r"عيار\s*21.*?(\d{4,5}(?:\.\d{1,2})?)\s*(?:ج\.م|جنيه)?\s*بيع.*?(\d{4,5}(?:\.\d{1,2})?)\s*(?:ج\.م|جنيه)?\s*شراء",
+                text,
+            )
+            if m:
+                sell_val = float(m.group(1))
+                buy_val = float(m.group(2))
+                if 2500 <= sell_val <= 30000:
+                    print(f"[iSagha Scrape OK] Sell={round(sell_val)}, Buy={round(buy_val)}")
+                    return round(sell_val), round(buy_val)
+
+        except Exception as e:
+            print(f"[iSagha Scrape Error] {url}: {repr(e)}")
+
+    raise ValueError("Direct scrape failed for iSagha 21K")
+
+
 def get_isagha_21_via_gemini(fallback_sell: int, fallback_buy: int):
-    """جيميناي يبحث حصرياً داخل موقع آي صاغة (isagha) عن سعر عيار 21 الآن"""
+    """محاولة احتياطية: جيميناي يبحث حصرياً في isagha.com عن سعر عيار 21"""
     if not GEMINI_API_KEY:
-        print("[Gemini Warning] GEMINI_API_KEY is empty in environment.")
+        print("[Gemini Warning] GEMINI_API_KEY is empty.")
         return fallback_sell, fallback_buy
 
     try:
@@ -399,12 +475,16 @@ def get_isagha_21_via_gemini(fallback_sell: int, fallback_buy: int):
 
 def build_market_data():
     glob = get_global_market()
-    sagha_21_sell, sagha_21_buy = get_isagha_21_via_gemini(
-        fallback_sell=glob["g21_sell"],
-        fallback_buy=glob["g21_buy"],
-    )
 
-    # الفجوة السعرية = سعر عيار 21 في آي صاغة - سعر عيار 21 من الشاشة العالمية
+    try:
+        sagha_21_sell, sagha_21_buy = scrape_isagha_21()
+    except Exception as e_scrape:
+        print(f"[Fallback to Gemini] {repr(e_scrape)}")
+        sagha_21_sell, sagha_21_buy = get_isagha_21_via_gemini(
+            fallback_sell=glob["g21_sell"],
+            fallback_buy=glob["g21_buy"],
+        )
+
     gap_egp = sagha_21_sell - glob["g21_sell"]
 
     return {
@@ -453,13 +533,11 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
     f_gap_val = load_font(30, bold=True)
     f_footer = load_font(26, bold=True)
 
-    # الشريط العلوي
     draw.rounded_rectangle([25, 22, 875, 76], radius=22, fill=EMERALD_DARK)
     draw.text((48, 34), "GOLD SNOW LIVE", font=f_badge, fill=TEXT_GOLD)
     draw_centered_text(draw, [280, 28, 620, 70], reshape_ar("مؤشر الذهب اللحظي"), f_badge, TEXT_LIGHT)
     draw.text((695, 34), time_str, font=f_badge, fill=TEXT_LIGHT)
 
-    # البطاقات العلوية (دولار البنك + الأونصة العالمية فقط)
     top_y1, top_y2 = 94, 214
 
     draw.rounded_rectangle([25, top_y1, 435, top_y2], radius=22, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=2)
@@ -470,7 +548,6 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
     draw_centered_text(draw, [465, top_y1 + 8, 875, top_y1 + 56], reshape_ar("الأونصة العالمية"), f_top_title, EMERALD_DARK)
     draw_centered_text(draw, [465, top_y1 + 60, 875, top_y2 - 8], reshape_ar(f"{round(data['xau_usd'])} دولار"), f_top_val, TEXT_DARK)
 
-    # كارت عيار 21 اليوم في مصر (من آي صاغة عبر جيميناي)
     draw.rounded_rectangle([25, 236, 875, 685], radius=30, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=4)
     draw.rounded_rectangle([250, 252, 650, 312], radius=20, fill=EMERALD_DARK)
     draw_centered_text(draw, [250, 256, 650, 308], reshape_ar("عيار 21 اليوم في مصر"), f_sec_title, TEXT_GOLD)
@@ -483,18 +560,15 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
     draw.rounded_rectangle([465, 562, 845, 658], radius=22, fill=BG_COLOR, outline=EMERALD_DARK, width=3)
     draw_centered_text(draw, [465, 568, 845, 652], reshape_ar(f"شراء: {data['sagha_21_buy']} ج"), f_sub_box, TEXT_DARK)
 
-    # عناوين الجدول
     draw_centered_text(draw, [50, 712, 250, 780], reshape_ar("شراء"), f_tbl_hdr, TEXT_DARK)
     draw_centered_text(draw, [325, 712, 555, 780], reshape_ar("بيع"), f_tbl_hdr, TEXT_DARK)
 
-    # كارت الفجوة السعرية (آي صاغة - الشاشة العالمية)
     gap_val = data["gap_egp"]
     gap_str = f"{gap_val:+d} ج" if gap_val != 0 else "0 ج"
     draw.rounded_rectangle([590, 704, 875, 792], radius=26, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=3)
     draw_centered_text(draw, [598, 710, 725, 786], reshape_ar(gap_str), f_gap_val, EMERALD_DARK)
     draw_centered_text(draw, [725, 710, 868, 786], reshape_ar("الفجوة\nالسعرية"), f_gap_lbl, TEXT_DARK)
 
-    # باقي الأعيرة كلها من الشاشة العالمية
     rows = [
         ("عيار 24", data["g24_sell"], data["g24_buy"]),
         ("عيار 18", data["g18_sell"], data["g18_buy"]),
@@ -519,15 +593,13 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
         draw_centered_text(draw, [315, y1 + 10, 565, y2 - 10], f"{sell_val}", f_row_num, TEXT_GOLD)
         draw_centered_text(draw, [585, y1 + 10, 860, y2 - 10], reshape_ar(label), f_row_label, TEXT_LIGHT)
 
-    # الشريط السفلي (سعر عيار 21 من الشاشة العالمية)
     bot_y1, bot_y2 = 1405, 1505
     draw.rounded_rectangle([25, bot_y1, 875, bot_y2], radius=26, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=3)
     draw.rounded_rectangle([38, bot_y1 + 10, 425, bot_y2 - 10], radius=20, fill=CARD_LIGHT)
     draw_centered_text(draw, [38, bot_y1 + 14, 425, bot_y2 - 14], reshape_ar(f"{data['global_21_sell']} جنيه"), f_tbl_hdr, EMERALD_DARK)
     draw_centered_text(draw, [445, bot_y1 + 14, 860, bot_y2 - 14], reshape_ar("سعر عيار 21 عالمياً"), f_tbl_hdr, TEXT_GOLD)
 
-    # الفوتر
-    draw_centered_text(draw, [50, 1518, 850, 1578], reshape_ar("@Goldsnowchennel • تحديث تلقائي كل 30 دقيقة"), f_footer, TEXT_DARK)
+    draw_centered_text(draw, [50, 1518, 850, 1578], reshape_ar("@Goldsnowchennel • تحديث تلقائي كل ساعة"), f_footer, TEXT_DARK)
 
     img.save(output_path)
     return output_path
