@@ -43,8 +43,8 @@ def load_font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-def get_base_market_data():
-    """جلب الأونصة العالمية بالدولار وسعر دولار البنك في مصر"""
+def get_global_and_bank():
+    """جلب الأونصة العالمية بالدولار وسعر دولار البنك بالجنيه"""
     gold_res = requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()
     xau_usd = float(gold_res["price"])
 
@@ -55,7 +55,7 @@ def get_base_market_data():
 
 
 def scrape_isagha():
-    """المستوى 1: سحب أسعار البيع والشراء والفجوة السعرية مباشرة من iSagha"""
+    """سحب أسعار iSagha مباشرة"""
     url = "https://market.isagha.com/prices"
     headers = {
         "User-Agent": (
@@ -72,7 +72,6 @@ def scrape_isagha():
     text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
 
     def extract_pair(label_pattern):
-        # البحث عن اسم العيار متبوعاً برقمي البيع والشراء
         m = re.search(
             rf"{label_pattern}.*?(\d{{3,6}}(?:\.\d{{1,2}})?)\s*(?:ج\.م|جنيه)?\s*بيع.*?(\d{{3,6}}(?:\.\d{{1,2}})?)\s*(?:ج\.م|جنيه)?\s*شراء",
             text,
@@ -88,33 +87,27 @@ def scrape_isagha():
     pound = extract_pair(r"جنيه\s*ذهب")
 
     if not g21 or not (2500 <= g21[0] <= 25000):
-        raise ValueError("Could not parse valid 21K price from iSagha HTML")
+        raise ValueError("Failed to parse 21K price from iSagha")
 
-    # استخراج الفجوة السعرية لعيار 21 إن وجدت في الصفحة
-    gap_match = re.search(r"الفجوة\s*السعرية.*?(\d+(?:\.\d+)?)\s*ج\.م", text)
-    gap_egp = float(gap_match.group(1)) if gap_match else None
+    g24_sell, g24_buy = g24 if g24 else (g21[0] * 24 / 21, g21[1] * 24 / 21)
+    g18_sell, g18_buy = g18 if g18 else (g21[0] * 18 / 21, g21[1] * 18 / 21)
+    g14_sell, g14_buy = g14 if g14 else (g21[0] * 14 / 21, g21[1] * 14 / 21)
+    p_sell, p_buy = pound if pound else (g21[0] * 8, g21[1] * 8)
 
-    g24_sell, g24_buy = g24 if g24 else (round(g21[0] * 24 / 21, 2), round(g21[1] * 24 / 21, 2))
-    g18_sell, g18_buy = g18 if g18 else (round(g21[0] * 18 / 21, 2), round(g21[1] * 18 / 21, 2))
-    g14_sell, g14_buy = g14 if g14 else (round(g21[0] * 14 / 21, 2), round(g21[1] * 14 / 21, 2))
-    p_sell, p_buy = pound if pound else (round(g21[0] * 8), round(g21[1] * 8))
-
-    print(f"[iSagha Scrape OK] 21K Sell={g21[0]}, Buy={g21[1]}, Gap={gap_egp}")
+    print(f"[iSagha OK] 21K Sell={g21[0]}, Buy={g21[1]}")
     return {
-        "source": "iSagha",
         "g24_sell": g24_sell, "g24_buy": g24_buy,
         "g21_sell": g21[0],   "g21_buy": g21[1],
         "g18_sell": g18_sell, "g18_buy": g18_buy,
         "g14_sell": g14_sell, "g14_buy": g14_buy,
         "pound_sell": p_sell, "pound_buy": p_buy,
-        "gap_egp": gap_egp,
     }
 
 
-def fetch_isagha_via_gemini():
-    """المستوى 2: استخدام Gemini API مع بحث جوجل كاحتياطي ذكي إذا تعذر السكرابينج"""
+def fetch_isagha_gemini():
+    """احتياطي Gemini مع بحث جوجل فقط إذا تعذر السكرابينج المباشر"""
     if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY is not configured")
+        raise ValueError("GEMINI_API_KEY missing")
 
     from google import genai
     from google.genai import types
@@ -122,12 +115,11 @@ def fetch_isagha_via_gemini():
     client = genai.Client(api_key=GEMINI_API_KEY)
     prompt = (
         "ابحث عن أحدث أسعار الذهب اليوم في مصر من موقع آي صاغة (market.isagha.com/prices). "
-        "أعد النتيجة بصيغة JSON فقط بدون أي نص إضافي أو علامات markdown، بالمفاتيح التالية بالأرقام فقط: "
+        "أعد JSON فقط بدون markdown: "
         '{"g24_sell": 0, "g24_buy": 0, "g21_sell": 0, "g21_buy": 0, "g18_sell": 0, "g18_buy": 0, '
-        '"g14_sell": 0, "g14_buy": 0, "pound_sell": 0, "pound_buy": 0, "gap_egp": 0}'
+        '"g14_sell": 0, "g14_buy": 0, "pound_sell": 0, "pound_buy": 0}'
     )
-
-    response = client.models.generate_content(
+    res = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
@@ -135,80 +127,72 @@ def fetch_isagha_via_gemini():
             temperature=0.1,
         ),
     )
+    match = re.search(r"\{.*\}", res.text.strip(), re.DOTALL)
+    if not match:
+        raise ValueError("Invalid JSON from Gemini")
 
-    raw = response.text.strip()
-    json_match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not json_match:
-        raise ValueError(f"Gemini did not return valid JSON: {raw}")
-
-    data = json.loads(json_match.group(0))
+    data = json.loads(match.group(0))
     if not (2500 <= float(data["g21_sell"]) <= 25000):
-        raise ValueError(f"Unrealistic Gemini 21K price: {data}")
+        raise ValueError("Invalid 21K value from Gemini")
 
-    data["source"] = "iSagha (Gemini Grounded)"
-    print(f"[Gemini Grounding OK] 21K Sell={data['g21_sell']}, Buy={data['g21_buy']}")
+    print(f"[Gemini Search OK] 21K Sell={data['g21_sell']}, Buy={data['g21_buy']}")
     return data
 
 
-def get_all_prices():
-    xau_usd, usd_egp = get_base_market_data()
-    fair_24 = (xau_usd / OUNCE_GRAMS) * usd_egp
-    fair_21 = fair_24 * (21 / 24)
+def get_prices():
+    xau_usd, usd_egp = get_global_and_bank()
 
-    sagha_data = None
+    # السعر العالمي المحسوب من الأونصة العالمية ودولار البنك
+    global_24 = (xau_usd / OUNCE_GRAMS) * usd_egp
+    global_21 = global_24 * (21 / 24)
+
+    sagha = None
     try:
-        sagha_data = scrape_isagha()
+        sagha = scrape_isagha()
     except Exception as e1:
         print(f"[iSagha Scrape Failed] {e1}")
         try:
-            sagha_data = fetch_isagha_via_gemini()
+            sagha = fetch_isagha_gemini()
         except Exception as e2:
-            print(f"[Gemini Fallback Failed] {e2}")
+            print(f"[Gemini Search Failed] {e2}")
 
-    if sagha_data:
-        g24_sell = float(sagha_data["g24_sell"])
-        g24_buy = float(sagha_data["g24_buy"])
-        g21_sell = float(sagha_data["g21_sell"])
-        g21_buy = float(sagha_data["g21_buy"])
-        g18_sell = float(sagha_data["g18_sell"])
-        g18_buy = float(sagha_data["g18_buy"])
-        g14_sell = float(sagha_data["g14_sell"])
-        g14_buy = float(sagha_data["g14_buy"])
-        pound_sell = float(sagha_data["pound_sell"])
-        pound_buy = float(sagha_data["pound_buy"])
-        source_name = sagha_data["source"]
+    if sagha:
+        g24_sell = float(sagha["g24_sell"])
+        g24_buy = float(sagha["g24_buy"])
+        g21_sell = float(sagha["g21_sell"])
+        g21_buy = float(sagha["g21_buy"])
+        g18_sell = float(sagha["g18_sell"])
+        g18_buy = float(sagha["g18_buy"])
+        g14_sell = float(sagha["g14_sell"])
+        g14_buy = float(sagha["g14_buy"])
+        pound_sell = float(sagha["pound_sell"])
+        pound_buy = float(sagha["pound_buy"])
 
-        # حساب دولار الصاغة من سعر عيار 24 المحلي مقابل الأونصة العالمية
-        sagha_dollar = (g24_sell * OUNCE_GRAMS) / xau_usd
+        # طرح السعر العالمي من سعر الصاغة مباشرة لإخراج الفجوة السعرية
+        gap_egp = round(g21_sell - global_21)
 
-        # الفجوة السعرية لعيار 21 بالجنيه (إما من الصفحة مباشرة أو الفرق بين سعر البيع والسعر العادل)
-        gap_egp = sagha_data.get("gap_egp")
-        if gap_egp is None or gap_egp == 0:
-            gap_egp = round(g21_sell - fair_21)
-        else:
-            gap_egp = round(float(gap_egp))
+        # حساب دولار الصاغة مباشرة نسبةً للسعر العالمي ودولار البنك
+        sagha_dollar = usd_egp * (g21_sell / global_21)
     else:
-        # المستوى 3: السعر العادل كاحتياطي أخير
-        source_name = "Fair Value"
-        sell_factor = 0.994
-        g24_sell, g24_buy = fair_24, fair_24 * sell_factor
-        g21_sell, g21_buy = fair_21, fair_21 * sell_factor
-        g18_sell, g18_buy = fair_24 * (18 / 24), fair_24 * (18 / 24) * sell_factor
-        g14_sell, g14_buy = fair_24 * (14 / 24), fair_24 * (14 / 24) * sell_factor
+        # في حال تعذر جلب الصاغة من المصدرين، نعرض السعر العالمي بدون فجوة أو افتراضات
+        sell_factor = 0.9965
+        g24_sell, g24_buy = global_24, global_24 * sell_factor
+        g21_sell, g21_buy = global_21, global_21 * sell_factor
+        g18_sell, g18_buy = global_24 * (18 / 24), global_24 * (18 / 24) * sell_factor
+        g14_sell, g14_buy = global_24 * (14 / 24), global_24 * (14 / 24) * sell_factor
         pound_sell, pound_buy = g21_sell * 8, g21_buy * 8
-        sagha_dollar = usd_egp
         gap_egp = 0
+        sagha_dollar = usd_egp
 
     ounce_local_sell = g24_sell * OUNCE_GRAMS
     ounce_local_buy = g24_buy * OUNCE_GRAMS
 
     return {
-        "source": source_name,
         "xau_usd": xau_usd,
         "usd_egp": usd_egp,
         "sagha_dollar": sagha_dollar,
         "gap_egp": gap_egp,
-        "fair_21": round(fair_21),
+        "global_21": round(global_21),
         "g24_sell": round(g24_sell), "g24_buy": round(g24_buy),
         "g21_sell": round(g21_sell), "g21_buy": round(g21_buy),
         "g18_sell": round(g18_sell), "g18_buy": round(g18_buy),
@@ -258,29 +242,26 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
     # البطاقات العلوية الثلاثة
     top_y1, top_y2 = 94, 214
 
-    # دولار البنك
     draw.rounded_rectangle([25, top_y1, 275, top_y2], radius=22, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=2)
     draw_centered_text(draw, [25, top_y1 + 8, 275, top_y1 + 56], reshape_ar("دولار البنك"), f_top_title, TEXT_GOLD)
     draw_centered_text(draw, [25, top_y1 + 60, 275, top_y2 - 8], reshape_ar(f"{data['usd_egp']:.2f} ج.م"), f_top_val, TEXT_LIGHT)
 
-    # الأونصة العالمية
     draw.rounded_rectangle([295, top_y1, 605, top_y2], radius=22, fill=CARD_LIGHT, outline=EMERALD_DARK, width=3)
     draw_centered_text(draw, [295, top_y1 + 8, 605, top_y1 + 56], reshape_ar("الأونصة العالمية"), f_top_title, EMERALD_DARK)
     draw_centered_text(draw, [295, top_y1 + 60, 605, top_y2 - 8], reshape_ar(f"{round(data['xau_usd'])} دولار"), f_top_val, TEXT_DARK)
 
-    # دولار الصاغة
     draw.rounded_rectangle([625, top_y1, 875, top_y2], radius=22, fill=EMERALD_ACCENT, outline=GOLD_ACCENT, width=2)
     draw_centered_text(draw, [625, top_y1 + 8, 875, top_y1 + 56], reshape_ar("دولار الصاغة"), f_top_title, TEXT_GOLD)
     draw_centered_text(draw, [625, top_y1 + 60, 875, top_y2 - 8], reshape_ar(f"{data['sagha_dollar']:.2f} ج.م"), f_top_val, TEXT_LIGHT)
 
-    # كارت عيار 21 الكبير (سعر البيع في الصاغة)
+    # كارت عيار 21 الكبير
     draw.rounded_rectangle([25, 236, 875, 685], radius=30, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=4)
     draw.rounded_rectangle([250, 252, 650, 312], radius=20, fill=EMERALD_DARK)
     draw_centered_text(draw, [250, 256, 650, 308], reshape_ar("عيار 21 اليوم في مصر"), f_sec_title, TEXT_GOLD)
 
     draw_centered_text(draw, [50, 320, 850, 545], f"{data['g21_sell']}", f_big_21, EMERALD_DARK)
 
-    # أزرار شراء / بيع (وفق مصطلح الصاغة: بيع = السعر للعميل، شراء = من العميل)
+    # أزرار بيع / شراء
     draw.rounded_rectangle([55, 562, 435, 658], radius=22, fill=EMERALD_DARK)
     draw_centered_text(draw, [55, 568, 435, 652], reshape_ar(f"بيع: {data['g21_sell']} ج"), f_sub_box, TEXT_GOLD)
 
@@ -291,13 +272,13 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
     draw_centered_text(draw, [50, 712, 250, 780], reshape_ar("شراء"), f_tbl_hdr, TEXT_DARK)
     draw_centered_text(draw, [325, 712, 555, 780], reshape_ar("بيع"), f_tbl_hdr, TEXT_DARK)
 
-    # كارت الفجوة السعرية بالجنيه
+    # كارت الفجوة السعرية
     gap_str = f"{data['gap_egp']} ج"
     draw.rounded_rectangle([590, 704, 875, 792], radius=26, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=3)
     draw_centered_text(draw, [598, 710, 725, 786], reshape_ar(gap_str), f_gap_val, EMERALD_DARK)
     draw_centered_text(draw, [725, 710, 868, 786], reshape_ar("الفجوة\nالسعرية"), f_gap_lbl, TEXT_DARK)
 
-    # صفوف الجدول (العمود الذهبي للبيع للعميل، والأبيض للشراء من العميل)
+    # صفوف الجدول
     rows = [
         ("عيار 24", data["g24_sell"], data["g24_buy"]),
         ("عيار 18", data["g18_sell"], data["g18_buy"]),
@@ -322,12 +303,12 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
         draw_centered_text(draw, [315, y1 + 10, 565, y2 - 10], f"{sell_val}", f_row_num, TEXT_GOLD)
         draw_centered_text(draw, [585, y1 + 10, 860, y2 - 10], reshape_ar(label), f_row_label, TEXT_LIGHT)
 
-    # الشريط السفلي (سعر عيار 21 العادل)
+    # الشريط السفلي (السعر العالمي لعيار 21)
     bot_y1, bot_y2 = 1405, 1505
     draw.rounded_rectangle([25, bot_y1, 875, bot_y2], radius=26, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=3)
     draw.rounded_rectangle([38, bot_y1 + 10, 425, bot_y2 - 10], radius=20, fill=CARD_LIGHT)
-    draw_centered_text(draw, [38, bot_y1 + 14, 425, bot_y2 - 14], reshape_ar(f"{data['fair_21']} جنيه"), f_tbl_hdr, EMERALD_DARK)
-    draw_centered_text(draw, [445, bot_y1 + 14, 860, bot_y2 - 14], reshape_ar("سعر عيار 21 العادل"), f_tbl_hdr, TEXT_GOLD)
+    draw_centered_text(draw, [38, bot_y1 + 14, 425, bot_y2 - 14], reshape_ar(f"{data['global_21']} جنيه"), f_tbl_hdr, EMERALD_DARK)
+    draw_centered_text(draw, [445, bot_y1 + 14, 860, bot_y2 - 14], reshape_ar("سعر عيار 21 عالمياً"), f_tbl_hdr, TEXT_GOLD)
 
     # الفوتر
     draw_centered_text(draw, [50, 1518, 850, 1578], reshape_ar("@Goldsnowchennel • تحديث تلقائي كل 30 دقيقة"), f_footer, TEXT_DARK)
@@ -343,7 +324,7 @@ def send_photo_to_channel(image_path: str, data: dict):
         f"✨ @Goldsnowchennel | ⏰ {now}\n"
         f"💰 عيار 21: {data['g21_sell']} ج.م (شراء: {data['g21_buy']} ج.م)\n"
         f"🌍 الأونصة: ${data['xau_usd']:,.2f} | 💵 البنك: {data['usd_egp']:.2f} | 🪙 الصاغة: {data['sagha_dollar']:.2f}\n"
-        f"📊 الفجوة السعرية: {data['gap_egp']} ج.م | السعر العادل: {data['fair_21']} ج.م"
+        f"📊 الفجوة: {data['gap_egp']} ج.م | العالمي 21: {data['global_21']} ج.م"
     )
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
@@ -358,6 +339,6 @@ def send_photo_to_channel(image_path: str, data: dict):
 
 
 if __name__ == "__main__":
-    market_data = get_all_prices()
+    market_data = get_prices()
     card_path = generate_card(market_data)
     send_photo_to_channel(card_path, market_data)
