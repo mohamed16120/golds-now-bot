@@ -18,10 +18,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests pillow arabic-reshaper python-bidi
+        run: pip install requests pillow beautifulsoup4 google-genai
 
       - name: Run Gold Bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python gold_bot.py
