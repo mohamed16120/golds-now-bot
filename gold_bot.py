@@ -195,7 +195,7 @@ def draw_centered_text(draw, box, text, font, fill):
 
 
 def generate_card(data: dict, output_path: str = "gold_card.png"):
-    W, H = 900, 1600
+    W, H = 900, 1390
     img = Image.new("RGB", (W, H), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
@@ -214,74 +214,64 @@ def generate_card(data: dict, output_path: str = "gold_card.png"):
     f_gap_lbl = load_font(23, bold=True)
     f_gap_val = load_font(30, bold=True)
     f_footer = load_font(26, bold=True)
+    f_big_glob = load_font(80, bold=True)
 
     draw.rounded_rectangle([25, 22, 875, 76], radius=22, fill=EMERALD_DARK)
     draw.text((48, 34), "GOLD SNOW LIVE", font=f_badge, fill=TEXT_GOLD)
     draw_centered_text(draw, [280, 28, 620, 70], reshape_ar("مؤشر الذهب اللحظي"), f_badge, TEXT_LIGHT)
     draw.text((695, 34), time_str, font=f_badge, fill=TEXT_LIGHT)
 
-    top_y1, top_y2 = 94, 214
+    # ---- Egypt card (top) ----
+    draw.rounded_rectangle([25, 94, 875, 464], radius=30, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=4)
+    draw.rounded_rectangle([200, 108, 700, 166], radius=20, fill=EMERALD_DARK)
+    draw_centered_text(draw, [200, 110, 700, 164], reshape_ar("مصر | عيار 21 (آي صاغة)"), f_sec_title, TEXT_GOLD)
+    draw_centered_text(draw, [50, 176, 850, 330], f"{data['sagha_21_sell']}", f_big_21, EMERALD_DARK)
+    draw.rounded_rectangle([55, 346, 435, 442], radius=22, fill=EMERALD_DARK)
+    draw_centered_text(draw, [55, 350, 435, 438], reshape_ar(f"بيع: {data['sagha_21_sell']} ج"), f_sub_box, TEXT_GOLD)
+    draw.rounded_rectangle([465, 346, 845, 442], radius=22, fill=BG_COLOR, outline=EMERALD_DARK, width=3)
+    draw_centered_text(draw, [465, 350, 845, 438], reshape_ar(f"شراء: {data['sagha_21_buy']} ج"), f_sub_box, TEXT_DARK)
 
-    draw.rounded_rectangle([25, top_y1, 435, top_y2], radius=22, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=2)
-    draw_centered_text(draw, [25, top_y1 + 8, 435, top_y1 + 56], reshape_ar("دولار البنك"), f_top_title, TEXT_GOLD)
-    draw_centered_text(draw, [25, top_y1 + 60, 435, top_y2 - 8], reshape_ar(f"{data['usd_egp']:.2f} ج.م"), f_top_val, TEXT_LIGHT)
-
-    draw.rounded_rectangle([465, top_y1, 875, top_y2], radius=22, fill=CARD_LIGHT, outline=EMERALD_DARK, width=3)
-    draw_centered_text(draw, [465, top_y1 + 8, 875, top_y1 + 56], reshape_ar("الأونصة العالمية"), f_top_title, EMERALD_DARK)
-    draw_centered_text(draw, [465, top_y1 + 60, 875, top_y2 - 8], reshape_ar(f"{round(data['xau_usd'])} دولار"), f_top_val, TEXT_DARK)
-
-    draw.rounded_rectangle([25, 236, 875, 685], radius=30, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=4)
-    draw.rounded_rectangle([250, 252, 650, 312], radius=20, fill=EMERALD_DARK)
-    draw_centered_text(draw, [250, 256, 650, 308], reshape_ar("عيار 21 اليوم في مصر"), f_sec_title, TEXT_GOLD)
-
-    draw_centered_text(draw, [50, 320, 850, 545], f"{data['sagha_21_sell']}", f_big_21, EMERALD_DARK)
-
-    draw.rounded_rectangle([55, 562, 435, 658], radius=22, fill=EMERALD_DARK)
-    draw_centered_text(draw, [55, 568, 435, 652], reshape_ar(f"بيع: {data['sagha_21_sell']} ج"), f_sub_box, TEXT_GOLD)
-
-    draw.rounded_rectangle([465, 562, 845, 658], radius=22, fill=BG_COLOR, outline=EMERALD_DARK, width=3)
-    draw_centered_text(draw, [465, 568, 845, 652], reshape_ar(f"شراء: {data['sagha_21_buy']} ج"), f_sub_box, TEXT_DARK)
-
-    draw_centered_text(draw, [50, 712, 250, 780], reshape_ar("شراء"), f_tbl_hdr, TEXT_DARK)
-    draw_centered_text(draw, [325, 712, 555, 780], reshape_ar("بيع"), f_tbl_hdr, TEXT_DARK)
+    # ---- Global card, directly under Egypt ----
+    draw.rounded_rectangle([25, 480, 875, 800], radius=30, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=4)
+    draw_centered_text(draw, [200, 490, 700, 540], reshape_ar("عالمياً"), f_sec_title, TEXT_GOLD)
+    draw.rounded_rectangle([45, 552, 435, 700], radius=22, fill=CARD_LIGHT)
+    draw_centered_text(draw, [45, 556, 435, 604], reshape_ar("الأونصة"), f_top_title, EMERALD_DARK)
+    draw_centered_text(draw, [45, 600, 435, 696], reshape_ar(f"${data['xau_usd']:,.0f}"), f_big_glob, EMERALD_DARK)
+    draw.rounded_rectangle([465, 552, 855, 700], radius=22, fill=CARD_LIGHT)
+    draw_centered_text(draw, [465, 556, 855, 604], reshape_ar("عيار 21 عالمي"), f_top_title, EMERALD_DARK)
+    draw_centered_text(draw, [465, 600, 855, 696], reshape_ar(f"{data['global_21_sell']} ج"), f_big_glob, EMERALD_DARK)
 
     gap_val = data["gap_egp"]
     gap_str = f"{gap_val:+d} ج" if gap_val != 0 else "0 ج"
-    draw.rounded_rectangle([590, 704, 875, 792], radius=26, fill=CARD_LIGHT, outline=GOLD_ACCENT, width=3)
-    draw_centered_text(draw, [598, 710, 725, 786], reshape_ar(gap_str), f_gap_val, EMERALD_DARK)
-    draw_centered_text(draw, [725, 710, 868, 786], reshape_ar("الفجوة\nالسعرية"), f_gap_lbl, TEXT_DARK)
+    draw_centered_text(draw, [45, 712, 435, 786], reshape_ar(f"دولار البنك: {data['usd_egp']:.2f} ج"), f_gap_val, TEXT_LIGHT)
+    draw_centered_text(draw, [465, 712, 855, 786], reshape_ar(f"الفجوة السعرية: {gap_str}"), f_gap_val, TEXT_GOLD)
+
+    # ---- Other karats ----
+    draw_centered_text(draw, [50, 818, 250, 880], reshape_ar("شراء"), f_tbl_hdr, TEXT_DARK)
+    draw_centered_text(draw, [325, 818, 555, 880], reshape_ar("بيع"), f_tbl_hdr, TEXT_DARK)
 
     rows = [
         ("عيار 24", data["g24_sell"], data["g24_buy"]),
         ("عيار 18", data["g18_sell"], data["g18_buy"]),
         ("عيار 14", data["g14_sell"], data["g14_buy"]),
         ("جنيه الذهب", data["pound_sell"], data["pound_buy"]),
-        ("أونصة محلى", data["ounce_sell"], data["ounce_buy"]),
     ]
 
-    start_y = 812
-    row_h = 94
-    gap_y = 15
+    start_y = 890
+    row_h = 90
+    gap_y = 14
 
     for idx, (label, sell_val, buy_val) in enumerate(rows):
         y1 = start_y + idx * (row_h + gap_y)
         y2 = y1 + row_h
         row_bg = EMERALD_DARK if idx % 2 == 0 else EMERALD_ACCENT
         draw.rounded_rectangle([25, y1, 875, y2], radius=24, fill=row_bg)
-
-        draw.ellipse([48, y1 + 35, 74, y1 + 61], fill=TEXT_GOLD)
-
+        draw.ellipse([48, y1 + 32, 74, y1 + 58], fill=TEXT_GOLD)
         draw_centered_text(draw, [92, y1 + 10, 285, y2 - 10], f"{buy_val}", f_row_num, TEXT_LIGHT)
         draw_centered_text(draw, [315, y1 + 10, 565, y2 - 10], f"{sell_val}", f_row_num, TEXT_GOLD)
         draw_centered_text(draw, [585, y1 + 10, 860, y2 - 10], reshape_ar(label), f_row_label, TEXT_LIGHT)
 
-    bot_y1, bot_y2 = 1405, 1505
-    draw.rounded_rectangle([25, bot_y1, 875, bot_y2], radius=26, fill=EMERALD_DARK, outline=GOLD_ACCENT, width=3)
-    draw.rounded_rectangle([38, bot_y1 + 10, 425, bot_y2 - 10], radius=20, fill=CARD_LIGHT)
-    draw_centered_text(draw, [38, bot_y1 + 14, 425, bot_y2 - 14], reshape_ar(f"{data['global_21_sell']} جنيه"), f_tbl_hdr, EMERALD_DARK)
-    draw_centered_text(draw, [445, bot_y1 + 14, 860, bot_y2 - 14], reshape_ar("سعر عيار 21 عالمياً"), f_tbl_hdr, TEXT_GOLD)
-
-    draw_centered_text(draw, [50, 1518, 850, 1578], reshape_ar("@Goldsnowchennel • تحديث تلقائي كل ساعة"), f_footer, TEXT_DARK)
+    draw_centered_text(draw, [50, 1310, 850, 1370], reshape_ar("@Goldsnowchennel • تحديث تلقائي كل ساعة"), f_footer, TEXT_DARK)
 
     img.save(output_path)
     return output_path
@@ -293,10 +283,10 @@ def send_photo_to_channel(image_path: str, data: dict):
     gap_val = data["gap_egp"]
     gap_str = f"{gap_val:+d}" if gap_val != 0 else "0"
     caption = (
-        f"✨ @Goldsnowchennel | ⏰ {now}\n"
-        f"💰 عيار 21 (آي صاغة): {data['sagha_21_sell']} ج.م (شراء: {data['sagha_21_buy']} ج.م)\n"
-        f"🌍 الأونصة: ${data['xau_usd']:,.2f} | 💵 البنك: {data['usd_egp']:.2f} | عيار 21 عالمي: {data['global_21_sell']} ج.م\n"
-        f"📊 الفجوة السعرية: {gap_str} ج.م"
+        f"💰 مصر عيار 21 (آي صاغة): بيع {data['sagha_21_sell']} | شراء {data['sagha_21_buy']} ج.م\n"
+        f"🌍 عالمي: الأونصة ${data['xau_usd']:,.2f} | عيار 21 {data['global_21_sell']} ج.م\n"
+        f"📊 الفجوة {gap_str} ج.م | 💵 {data['usd_egp']:.2f}\n"
+        f"⏰ {now} | @Goldsnowchennel"
     )
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
