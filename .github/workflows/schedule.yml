@@ -25,7 +25,8 @@ jobs:
 
       - name: Install dependencies
         run: pip install requests pillow beautifulsoup4 google-genai
-
+      - name: Random delay
+        run: sleep $((RANDOM % 1800))
       - name: Run Gold Bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
